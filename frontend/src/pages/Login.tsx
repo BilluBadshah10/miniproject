@@ -44,14 +44,22 @@ const Login = () => {
 
       if (response.ok) {
 
-        localStorage.setItem("token", data.token);
+       localStorage.setItem("token", data.token);
 
-        toast({
-          title: "Access Granted",
-          description: "Welcome to BharatID Secure Dashboard."
-        });
+// Decode JWT to extract role
+const payload = JSON.parse(atob(data.token.split(".")[1]));
 
-        navigate("/dashboard");
+toast({
+  title: "Access Granted",
+  description: "Welcome to BharatID Secure Dashboard."
+});
+
+// Role-based redirect
+if (payload.role === "admin") {
+  navigate("/admin-dashboard");
+} else {
+  navigate("/dashboard");
+}
       } else {
         toast({
           title: "Access Denied",

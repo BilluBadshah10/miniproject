@@ -161,27 +161,6 @@ const Dashboard = () => {
 
   /* -------- VERIFY DOCUMENT (ADMIN) -------- */
 
-  @biometric_bp.route("/verify-document/<doc_type>", methods=["POST"])
-def verify_document(doc_type):
-
-    if doc_type not in ALLOWED_DOC_TYPES:
-        return jsonify({"message": "Invalid document type"}), 400
-
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"message": "Token missing"}), 401
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload or payload.get("role") != "admin":
-        return jsonify({"message": "Admin access required"}), 403
-
-    user_id = request.json.get("user_id")
-
-    if not user_id:
-        return jsonify({"message": "User ID required"}), 400
-
     db = get_db()
 
     result = db.users.update_one(
