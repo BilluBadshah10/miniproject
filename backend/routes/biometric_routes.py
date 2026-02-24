@@ -1,9 +1,12 @@
 from flask import Blueprint, jsonify, request, send_file, current_app
-from token_utils import verify_token
 from models.user_model import get_user_by_id
 from database.db import get_db
 from werkzeug.utils import secure_filename
 from bson import ObjectId
+from services.pqc_service import PQCService
+from utils.auth_middleware import token_required, role_required
+from services.encryption_service import EncryptionService
+from io import BytesIO
 import uuid
 import os
 
@@ -11,21 +14,14 @@ biometric_bp = Blueprint("biometric_bp", __name__)
 
 ALLOWED_DOC_TYPES = ["aadhaar", "pan", "passport"]
 
+# ================= ADMIN ROUTES =================
+
 @biometric_bp.route("/verify-document/<doc_type>", methods=["POST"])
-def verify_document(doc_type):
+@role_required("admin")
+def verify_document(current_user, doc_type):
 
     if doc_type not in ALLOWED_DOC_TYPES:
         return jsonify({"message": "Invalid document type"}), 400
-
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"message": "Token missing"}), 401
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload or payload.get("role") != "admin":
-        return jsonify({"message": "Admin access required"}), 403
 
     user_id = request.json.get("user_id")
 
@@ -48,18 +44,10 @@ def verify_document(doc_type):
 
     return jsonify({"message": f"{doc_type} verified successfully"}), 200
 
+
 @biometric_bp.route("/all-users", methods=["GET"])
-def get_all_users():
-
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"message": "Token missing"}), 401
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload or payload.get("role") != "admin":
-        return jsonify({"message": "Admin access required"}), 403
+@role_required("admin")
+def get_all_users(current_user):
 
     db = get_db()
     users = list(db.users.find({}, {"password": 0}))
@@ -69,20 +57,14 @@ def get_all_users():
 
     return jsonify(users)
 
+
+# ================= USER ROUTES =================
+
 @biometric_bp.route("/biometric-status", methods=["GET"])
-def biometric_status():
+@token_required
+def biometric_status(current_user):
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"message": "Token missing"}), 401
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload:
-        return jsonify({"message": "Invalid or expired token"}), 401
-
-    user_id = payload["user_id"]
+    user_id = current_user["user_id"]
     user = get_user_by_id(user_id)
 
     if not user:
@@ -93,23 +75,15 @@ def biometric_status():
         "documents": user.get("documents", {})
     })
 
+
 @biometric_bp.route("/view-document/<doc_type>", methods=["GET"])
-def view_document(doc_type):
+@token_required
+def view_document(current_user, doc_type):
 
     if doc_type not in ALLOWED_DOC_TYPES:
         return jsonify({"message": "Invalid document type"}), 400
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"message": "Token missing"}), 401
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload:
-        return jsonify({"message": "Invalid or expired token"}), 401
-
-    user_id = payload["user_id"]
+    user_id = current_user["user_id"]
     user = get_user_by_id(user_id)
 
     if not user:
@@ -125,25 +99,27 @@ def view_document(doc_type):
     if not file_path or not os.path.exists(file_path):
         return jsonify({"message": "File not found on server"}), 404
 
-    return send_file(file_path, as_attachment=False)
+    #  Decrypt in memory before sending
+    with open(file_path, "rb") as f:
+        encrypted_data = f.read()
+
+    decrypted_data = EncryptionService.decrypt_bytes(encrypted_data)
+
+    return send_file(
+        BytesIO(decrypted_data),
+        as_attachment=False,
+        download_name=os.path.basename(file_path)
+    )
+
 
 @biometric_bp.route("/upload-document/<doc_type>", methods=["POST"])
-def upload_document(doc_type):
+@token_required
+def upload_document(current_user, doc_type):
 
     if doc_type not in ALLOWED_DOC_TYPES:
         return jsonify({"message": "Invalid document type"}), 400
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"message": "Token missing"}), 401
-
-    token = auth_header.split(" ")[1]
-    payload = verify_token(token)
-
-    if not payload:
-        return jsonify({"message": "Invalid or expired token"}), 401
-
-    user_id = payload["user_id"]
+    user_id = current_user["user_id"]
     user = get_user_by_id(user_id)
 
     if not user:
@@ -153,7 +129,6 @@ def upload_document(doc_type):
     if not file:
         return jsonify({"message": "File required"}), 400
 
-    # Secure filename
     filename = secure_filename(file.filename)
     unique_filename = f"{uuid.uuid4()}_{filename}"
 
@@ -161,24 +136,41 @@ def upload_document(doc_type):
     os.makedirs(upload_folder, exist_ok=True)
 
     filepath = os.path.join(upload_folder, unique_filename)
+
+    # Save temporarily
     file.save(filepath)
 
-    # Update user document in DB
-    db = get_db()
+    # 🔐 Encrypt file at rest
+    with open(filepath, "rb") as f:
+        original_data = f.read()
 
-    db.users.update_one(
-        {"_id": user["_id"]},
-        {
-            "$set": {
-                f"documents.{doc_type}.uploaded": True,
-                f"documents.{doc_type}.verified": False,
-                f"documents.{doc_type}.path": filepath
-            }
+    encrypted_data = EncryptionService.encrypt_bytes(original_data)
+
+    with open(filepath, "wb") as f:
+        f.write(encrypted_data)
+    # 🧠 PQC Simulation Layer
+quantum_key = PQCService.generate_quantum_safe_key()
+pqc_marker = PQCService.create_pqc_marker(encrypted_data)
+
+# Update DB
+db = get_db()
+
+db.users.update_one(
+    {"_id": user["_id"]},
+    {
+        "$set": {
+            f"documents.{doc_type}.uploaded": True,
+            f"documents.{doc_type}.verified": False,
+            f"documents.{doc_type}.path": filepath,
+            f"documents.{doc_type}.encryption": "AES-256",
+            f"documents.{doc_type}.pqc_enabled": True,
+            f"documents.{doc_type}.pqc_marker": pqc_marker,
+            f"documents.{doc_type}.quantum_key": quantum_key
         }
-    )
+    }
+)
 
     return jsonify({
         "message": f"{doc_type.capitalize()} uploaded successfully",
         "status": "pending_verification"
     }), 200
-

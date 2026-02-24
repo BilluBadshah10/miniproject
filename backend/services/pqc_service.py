@@ -1,21 +1,18 @@
 import secrets
 import hashlib
 
-
 class PQCService:
 
     @staticmethod
     def generate_quantum_safe_key():
         """
-        Simulate post-quantum key exchange
+        Simulated post-quantum secure random key
         """
-        return secrets.token_hex(32)
+        return secrets.token_hex(64)
 
     @staticmethod
-    def hybrid_encrypt_marker(data: str) -> str:
+    def create_pqc_marker(data: bytes) -> str:
         """
-        Mark data as PQC-protected (simulation layer)
+        Generate SHA-512 marker for encrypted data
         """
-        quantum_marker = hashlib.sha512(data.encode()).hexdigest()
-        return quantum_marker
-
+        return hashlib.sha512(data).hexdigest()
