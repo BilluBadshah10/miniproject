@@ -1,19 +1,18 @@
+import React, { useEffect, useState } from "react";
 import {
   Shield,
   Clock,
   AlertCircle,
   CheckCircle2,
   User,
-  FileText,
-  Lock
+  FileText
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import jwt_decode from "jwt-decode";
-import { useEffect, useState } from "react";
+import {jwtDecode} from "jwt-decode";
 
 /* ---------------- TYPES ---------------- */
 
@@ -53,7 +52,8 @@ const statusConfig = {
 const labelMap: Record<string, string> = {
   aadhaar: "Aadhaar Card",
   pan: "PAN Card",
-  passport: "Passport"
+  passport: "Passport",
+  driving: "Driving License"
 };
 
 /* ---------------- COMPONENT ---------------- */
@@ -63,14 +63,16 @@ const Dashboard = () => {
   const [documents, setDocuments] = useState<DocumentsMap | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<string>("user");
+  const [userId, setUserId] = useState<string>("");
 
-  /* -------- DECODE ROLE -------- */
+  /* -------- DECODE TOKEN -------- */
 
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
-      const decoded = jwt_decode<DecodedToken>(token);
+      const decoded = jwtDecode<DecodedToken>(token);
       setRole(decoded.role || "user");
+      setUserId(decoded.user_id);
     }
   }, []);
 
@@ -161,21 +163,26 @@ const Dashboard = () => {
 
   /* -------- VERIFY DOCUMENT (ADMIN) -------- */
 
-    db = get_db()
+  const handleVerify = async (docType: string) => {
+    const response = await fetch(
+      `http://localhost:5000/api/verify-document/${docType}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({ user_id: userId })
+      }
+    );
 
-    result = db.users.update_one(
-        {"_id": ObjectId(user_id)},
-        {
-            "$set": {
-                f"documents.{doc_type}.verified": True
-            }
-        }
-    )
+    if (!response.ok) {
+      alert("Verification failed");
+      return;
+    }
 
-    if result.modified_count == 0:
-        return jsonify({"message": "Verification failed"}), 400
-
-    return jsonify({"message": f"{doc_type} verified successfully"}), 200
+    fetchStatus();
+  };
 
   /* -------- CALCULATIONS -------- */
 
@@ -203,82 +210,36 @@ const Dashboard = () => {
 
   return (
     <div className="container mx-auto px-4 py-8 md:py-12">
+      <h1 className="text-2xl font-bold md:text-3xl mb-6">
+        BharatID Secure Dashboard
+      </h1>
 
-      {/* HEADER */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold md:text-3xl">
-          BharatID Secure Dashboard
-        </h1>
+      {role === "admin" && (
+        <Badge className="bg-red-600 text-white mb-4">
+          Admin Panel
+        </Badge>
+      )}
 
-        {role === "admin" && (
-          <Badge className="bg-red-600 text-white mt-2">
-            Admin Panel
-          </Badge>
-        )}
-      </div>
+      <Card className="mb-6">
+        <CardContent className="flex items-center gap-4 p-5">
+          <Shield className="h-6 w-6 text-secondary" />
+          <div>
+            <p className="text-sm text-muted-foreground">
+              Verification Status
+            </p>
+            <p className="text-lg font-bold text-green-600">
+              {biometricStatus}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* STATUS CARDS */}
-      <div className="mb-8 grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <Shield className="h-6 w-6 text-secondary" />
-            <div>
-              <p className="text-sm text-muted-foreground">
-                Verification Status
-              </p>
-              <p className="text-lg font-bold text-green-600">
-                {biometricStatus}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <FileText className="h-6 w-6 text-primary" />
-            <div>
-              <p className="text-sm text-muted-foreground">
-                Documents Submitted
-              </p>
-              <p className="text-lg font-bold">
-                {uploadedCount} of {totalDocs}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="flex items-center gap-4 p-5">
-            <User className="h-6 w-6 text-primary" />
-            <div>
-              <p className="text-sm text-muted-foreground">
-                Profile Completion
-              </p>
-              <div className="mt-1 flex items-center gap-2">
-                <Progress value={completionPercent} className="h-2 w-24" />
-                <span className="text-sm font-semibold">
-                  {completionPercent}%
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* DOCUMENT TABLE */}
       <Card>
         <CardHeader>
           <CardTitle>Submitted Documents</CardTitle>
         </CardHeader>
         <CardContent>
           <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="pb-3">Document</th>
-                <th className="pb-3">Status</th>
-                <th className="pb-3 text-right">Action</th>
-              </tr>
-            </thead>
             <tbody>
               {documents &&
                 Object.entries(documents).map(([key, doc]) => {
@@ -290,7 +251,7 @@ const Dashboard = () => {
                   const cfg = statusConfig[status];
 
                   return (
-                    <tr key={key} className="border-b last:border-0">
+                    <tr key={key} className="border-b">
                       <td className="py-4 font-medium">
                         {labelMap[key] || key}
                       </td>
@@ -306,7 +267,6 @@ const Dashboard = () => {
                         {!doc.uploaded ? (
                           <Button
                             size="sm"
-                            variant="outline"
                             onClick={() => handleUpload(key)}
                           >
                             Upload
@@ -315,7 +275,7 @@ const Dashboard = () => {
                           <>
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant="outline"
                               onClick={() => handleView(key)}
                             >
                               View
