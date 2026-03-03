@@ -1,6 +1,22 @@
-venv/
-backend/venv/
+# Python
 __pycache__/
 *.pyc
+*.pyo
+
+# Virtual env
+venv/
+backend/venv/
+
+# Environment
 .env
-uploads/
+
+# OS files
+.DS_Store
+
+# Uploaded files
+*.pdf
+*.png
+*.jpg
+
+# Node
+node_modules/
