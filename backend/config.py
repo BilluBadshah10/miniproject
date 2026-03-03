@@ -4,7 +4,7 @@ class Config:
     # Secret key for JWT / session encryption
     SECRET_KEY = os.environ.get("SECRET_KEY") or"super-secret-key"
     
-    JWT_SECRET_KEY = "bharatid_jwt_secret_2026"   # 🔥 ADD THIS
+    JWT_SECRET_KEY = "super_secure_very_long_random_string_12345"   # 🔥 ADD THIS
     JWT_EXPIRATION_MINUTES = 60
     
     # MongoDB connection string

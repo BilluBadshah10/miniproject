@@ -13,6 +13,7 @@ def generate_token(user):
         "role": user.get("role", "user"),
         "exp": expiration
     }
+    print("JWT PAYLOAD:", payload)
 
     token = jwt.encode(
         payload,

@@ -1,7 +1,8 @@
 from flask import Blueprint, request, jsonify, current_app
-from models.user_model import create_user, get_user_by_aadhaar
+from models.user_model import create_user, get_user_by_aadhaar, user_schema
 from password_utils import hash_password
 from werkzeug.utils import secure_filename
+from datetime import datetime
 import os
 import uuid
 
@@ -21,18 +22,18 @@ def enroll():
 
         file = request.files.get("idFile")
 
-        # 🔹 Validate required fields
+        # Validate required fields
         if not all([full_name, email, phone, aadhaar, password]):
             return jsonify({"message": "Missing required fields"}), 400
 
         if not file:
             return jsonify({"message": "Biometric document required"}), 400
 
-        # 🔹 Check duplicate Aadhaar
+        # Duplicate check
         if get_user_by_aadhaar(aadhaar):
             return jsonify({"message": "User already enrolled"}), 409
 
-        # 🔹 Validate file extension
+        # Validate extension
         allowed_extensions = current_app.config["ALLOWED_EXTENSIONS"]
 
         if "." not in file.filename:
@@ -43,7 +44,7 @@ def enroll():
         if extension not in allowed_extensions:
             return jsonify({"message": "Invalid file type"}), 400
 
-        # 🔹 Secure filename + unique ID
+        # Secure filename
         filename = secure_filename(file.filename)
         unique_filename = f"{uuid.uuid4()}_{filename}"
 
@@ -53,35 +54,20 @@ def enroll():
         filepath = os.path.join(upload_folder, unique_filename)
         file.save(filepath)
 
-        # 🔹 Hash password
+        # Hash password
         hashed_password = hash_password(password)
 
-        # 🔹 Create user document structure
-        user_data = {
-            "full_name": full_name,
-            "email": email,
-            "phone": phone,
-            "aadhaar": aadhaar,
-            "password": hashed_password,
-            "role":"user",
-            "documents": {
-                "aadhaar": {
-                    "uploaded": True,
-                    "verified": False,
-                    "path": filepath
-                },
-                "pan": {
-                    "uploaded": False,
-                    "verified": False,
-                    "path": None
-                },
-                "passport": {
-                    "uploaded": False,
-                    "verified": False,
-                    "path": None
-                }
-            }
-        }
+        # Use professional schema
+        user_data = user_schema(
+            {
+                "fullName": full_name,
+                "email": email,
+                "phone": phone,
+                "aadhaar": aadhaar,
+                "password": hashed_password
+            },
+            filepath
+        )
 
         create_user(user_data)
 
@@ -95,4 +81,3 @@ def enroll():
             "message": "Enrollment failed",
             "error": str(e)
         }), 500
-
