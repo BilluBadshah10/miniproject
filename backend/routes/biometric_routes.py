@@ -14,7 +14,25 @@ import os
 
 biometric_bp = Blueprint("biometric_bp", __name__)
 
-ALLOWED_DOC_TYPES = ["aadhaar", "pan", "passport", "driving"]
+ALLOWED_DOC_TYPES = ["aadhaar", "pan", "passport", "driving", "voter"]
+
+@biometric_bp.route("/admin/user/<user_id>", methods=["GET"])
+@role_required("admin")
+def get_single_user(current_user, user_id):
+
+    db = get_db()
+
+    user = db.users.find_one(
+        {"_id": ObjectId(user_id)},
+        {"password": 0}
+    )
+
+    if not user:
+        return jsonify({"message":"User not found"}),404
+
+    user["_id"] = str(user["_id"])
+
+    return jsonify(user)
 
 @biometric_bp.route("/reject-document/<doc_type>", methods=["POST"])
 @role_required("admin")

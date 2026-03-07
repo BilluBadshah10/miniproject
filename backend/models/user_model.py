@@ -37,6 +37,7 @@ def user_schema(data, biometric_path):
             },
             "pan": default_document_schema(),
             "passport": default_document_schema(),
+            "voter": default_document_schema(),
             "driving": default_document_schema()
         }
     }
